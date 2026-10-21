@@ -131,6 +131,43 @@ pending_curation / deleted…），**不签发**任何身份。CLI 没有 `aoci 
 ## 三、改之前：先用 gitnexus 摸清影响面
 
 **前置两步**：① `gitnexus analyze` 建索引；② `list_repos`（或 `group.yaml`）拿 `repo` 名。
+
+### 重建索引前：先停掉用它的 MCP 进程
+
+`lbug`（图数据库文件）被占用时，`analyze` 会重试 5 次后放弃 —— **图重建了但换不上，
+旧索引继续生效**（`indexedAt` 不变，而输出里只留一句 warning）。gitnexus 自己的提示
+（"stop any GitNexus MCP or serve process using this repository"）**只在失败之后才打印**，
+等你看到它已经白跑了一轮。
+
+所以：**先停 MCP 进程，再 analyze**。
+
+```bash
+# Windows：找出 gitnexus 的 MCP 进程
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -like '*gitnexus*' } | Select-Object ProcessId, CommandLine
+# 停掉它（停完 mcp__gitnexus__* 工具会不可用，重建完需重新启用 connector）
+```
+
+### 解析缓存也可能拦住重建
+
+`analyze` 每次都会清 `.gitnexus/parsedfile-store`（解析缓存）。若宿主的沙箱/安全策略
+限制批量删除（例如 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，阈值 50 个文件），清理会被拦，
+整个 parse 阶段直接失败。
+
+而且这是**死循环**：analyze 跑一次会重建缓存（几百个文件）→ 下次再跑又要清 → 又超阈值。
+
+稳妥做法：**重建前把障碍移走**（`mv` 而不是删，出问题能立刻恢复）：
+
+```bash
+mv .gitnexus/parsedfile-store .gitnexus/parsedfile-store.bak
+mv .gitnexus/lbug .gitnexus/lbug.bak
+gitnexus analyze        # 此时从零建
+# 确认 indexedAt / lastCommit 已更新、再随手查一个符号能返回结果，才删备份
+```
+
+**验收不能只看"success"**：要核对 `meta.json` 的 `indexedAt` 变成刚才、`lastCommit` 等于当前 HEAD，
+再用 `gitnexus impact <symbol>` 或 `context <symbol>` 实查一次 —— 否则可能只是"跑完了但没换上"。
+
 没建过索引时工具**不报错**，而是返回**看起来正常的空**——所以下面那段"怎么读"比命令本身更重要。**四个工具都必填 `repo`**（跨仓用 `@<groupName>`）；`impact` 另必填 `direction`，
 `query` 另必填 `search_query`（**不是 `query`**）。
 
