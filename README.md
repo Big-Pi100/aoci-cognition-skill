@@ -58,6 +58,9 @@ Read https://raw.githubusercontent.com/Big-Pi100/aoci-cognition-skill/main/SKILL
 and follow it for this repository.
 ```
 
+If the agent can't reach GitHub (restricted egress, corporate proxy), use option 1 or 2 — the file is the whole
+skill, nothing is fetched at runtime.
+
 ## Prerequisites
 
 The skill checks these itself and tells the agent what to do about each — but so you know what you're signing up for:
