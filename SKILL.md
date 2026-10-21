@@ -93,9 +93,20 @@ args    : ["--repo", "<项目绝对路径>", "mcp"]
 **用**：新建或维护认知条目（FRAS v2、S 字段）；`aoci_maintain` 报 candidates 或漂移；`verify` / `check` /
 `index agent guide` 任一处非 aligned；要改作用域（`.aoci/config.json`）；要建立"认知可靠"收据。
 
-**两条入口先分清**：MCP `aoci_maintain` 是**唯一**签发候选的地方（返回 `candidate_id` /
-`source_sha256` / `code_plan.batch_id`）；CLI `aoci index update` 只把漂移**分类**（changed / new /
-pending_curation / deleted…），**不签发**任何身份。CLI 没有 `aoci maintain` / `aoci overview`（报 `unknown command`）。
+**两条入口先分清**（MCP 信息更全，但**不是唯一入口**）：
+
+| 入口 | 给你什么 | 缺什么 |
+|---|---|---|
+| MCP `aoci_maintain` | 候选 + `candidate_id` / `source_sha256` / `code_plan.batch_id` + **每条候选的 `existing_entry`** | 要配 MCP |
+| CLI `aoci check --json` | `code_drift` 的 `stale` / `missing` / `orphan` / `observed_*` —— **同样能列出"该改哪些"** | 不给 `existing_entry`（要自己去 `aoci.code.txt` 翻） |
+
+⇒ 写入只需要 `path` + 条目 + **目标文件当前的 sha256**，三者 CLI 都能自备（详见 §四路 B）。
+
+⚠️ **别被 `aoci index update` 的名字骗**：它对 Volumes v1 会直接拒绝
+（`This command or compatibility write path cannot modify Volumes v1 formal cognition`），
+那是 Legacy 布局的写入路径 —— 既不能改、也不做分类。
+
+CLI 没有 `aoci maintain` / `aoci overview`（报 `unknown command`）。
 
 **不要调 `aoci_maintain`**：
 
@@ -113,7 +124,8 @@ pending_curation / deleted…），**不签发**任何身份。CLI 没有 `aoci 
 ```
 改之前   ① gitnexus impact / trace              改这个会坏谁
          ② 改代码
-改之后   ③ aoci_maintain → aoci_update_entry     更新 F/R/A/S（MCP）
+改之后   ③ 写条目：aoci_maintain → aoci_update_entry        （MCP，推荐）
+                  或 aoci update-entry --source-sha256 <sha>  （纯 CLI，见 §四路 B）
          ④ aoci verify + check + guide           证明对齐
          ⑤ aoci_overview + attestation           认知可靠收据
 ```
