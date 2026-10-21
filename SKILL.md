@@ -19,7 +19,9 @@ AOCI 存**语义与踩坑事实**，gitnexus 存**调用关系图**：前者管"
 
 `init` 实际会写四样东西（都是项目级，不污染全局）：`.aoci/` 骨架与 `config.json`、`AGENTS.md` 的 aoci 管理块、
 host 的 MCP 配置（如 `claude` → `.mcp.json`）、以及把该 MCP 文件加进 `.gitignore`（不进 Git、不进 Managed Scope）。
-`init` **不调模型、不编造条目**——它只搭骨架。
+`init` **不调模型、不编造条目**——它只搭骨架。已存在的资产一律 `skipped; never overwritten`
+（实测 `.gitattributes` 也如此：仓库已有自己的行尾策略时，**不覆盖也不追加**，
+所以 aoci 的 LF 要求不会自动生效 —— 你自己决定要不要按它的写法补）。
 
 **`init --agent` 一条命令打通 MCP 接入**——写的是**项目级**配置（不是全局），所以多项目天然并存：
 
@@ -31,7 +33,17 @@ aoci --repo /abs/path/to/repo init --agent claude|codex|cursor|opencode|qoder|al
 
 （`--agent` 的可选值以 `aoci init --help` 为准，release 间可能增减。）
 
-**host 不在上面那个列表里**（自研 agent，或 MCP 配置不落在项目级文件的宿主）→ 手工加一条 **stdio** MCP：
+**host 不在上面那个列表里**（自研 agent，或 MCP 配置不落在项目级文件的宿主）——
+
+⚠️ **`init` 要省略 `--agent`，不要猜一个最像的传进去**（三条路实测结果差别很大）：
+
+| 你的写法 | 实测结果 |
+|---|---|
+| `init --agent workbuddy`（未知名字）| `Error: unknown Agent "workbuddy"`，**报错即退出，连 `.aoci/` 都不会建** |
+| `init --agent claude`（硬借一个）| 会写一份**没人读的 `.mcp.json`**，还被 init 加进 `.gitignore` —— `git status` 都看不见它，**形似配好、实际不生效** |
+| ✅ `init`（**省略 `--agent`**）| 只建 `.aoci/` + `AGENTS.md` + `.gitattributes`，**不写任何 host 配置** —— 这才是全局型 host 的正确路径 |
+
+然后手工加一条 **stdio** MCP：
 
 ```
 command : <aoci 绝对路径>
@@ -45,7 +57,7 @@ args    : ["--repo", "<项目绝对路径>", "mcp"]
 | **项目级**（`init --agent` 会写） | Claude Code `.mcp.json`、Codex `.codex/config.toml`、Cursor、OpenCode、Qoder | 天然并存，`--repo` 各自指向自己项目根 |
 | **全局级**（`init` 管不到） | 把 MCP 配在用户目录一份配置文件里的宿主 | 🔴 **同一时间只能指一个项目** |
 
-全局级 host 的三个连带事实：① `init --agent` 照样能建 `.aoci/` 和 `AGENTS.md`，但**不会写 MCP**；② `doctor` 只认上面那五类环境，不认你；③ 若你硬加多条 server，工具名会带 server 前缀（`mcp__<name>__aoci_maintain`），**skill 里的裸工具名就对不上了**。
+全局级 host 的三个连带事实：① `init --agent <未知名字>` **直接报错退出，骨架都不会建**（不是"能建但不写 MCP"）—— 务必省略 `--agent`；② `doctor` 只认那五类环境，不认你 —— 它报 `not configured` 的意思是"**我看不见**"，不是"**你没配**"，别因此反复折腾；③ 若你硬加多条 server，工具名会带 server 前缀（`mcp__<name>__aoci_maintain`），**skill 里的裸工具名就对不上了**。
 
 ⇒ 全局级 host **不要并存多个 aoci MCP 条目**，切项目就改那一条 `--repo`。并存的最大风险正是下面这个：
 
