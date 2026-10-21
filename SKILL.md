@@ -212,7 +212,9 @@ d=1 里每一个都要在改完后确认还活着——它们同时是条目 `R:
 
 ## 四、改之后：AOCI 闭环
 
-主路径走 MCP——**只有它能签发候选身份**；CLI 只做校验和单条落盘。
+两条路，**功能上都完整**。能配 MCP 就配（省手工），配不了纯 CLI 一样能收口。
+
+### 路 A：MCP（推荐——会替你把现有条目递到手上）
 
 ```
 ① aoci_maintain({})        领候选。记下 code_plan.batch_id；
@@ -226,15 +228,70 @@ d=1 里每一个都要在改完后确认还活着——它们同时是条目 `R:
 ④ 证明对齐（CLI）
 ```
 
+### 路 B：纯 CLI（零配置，不配 MCP 也能闭环）
+
+> ⚠️ **纠正一个曾被写进本 skill 的错误**：
+> 旧版说「`candidate_id` / `source_sha256` **仍只能来自 `aoci_maintain`**」。**这是错的。**
+
+实测（2026-10-21，Volumes v1）：
+
+| 用什么指纹 | 结果 |
+|---|---|
+| 过期值（文件改过，仍拿旧 sha） | ❌ `[write_conflict] The evidence binding changed before the cognition update was applied` |
+| **目标文件当前的 `sha256`** | ✅ `Entry operation completed` + `alignment=complete` + baseline 自动同步 |
+
+⇒ `--source-sha256` 的语义是「**证明你读的就是这个版本的文件**」，**不限定指纹从哪来**。
+`--candidate-id` 这个参数 CLI 根本没有。**CAS 保护仍然生效（写不进错内容），但你不必配 MCP。**
+
+流程：
+
+```bash
+# ① 发现候选（等价 maintain 的 candidates 列表）
+aoci check --json | jq -r '.governance.code_drift.stale[]'
+
+# ② 每个 stale 文件：读它 → 写条目 → 现算指纹 → 直写
+sha=$(sha256sum <file> | cut -d' ' -f1)                 # Windows: certutil -hashfile <file> SHA256
+aoci update-entry --path <file> --entry '<整行条目>' --source-sha256 "$sha" --preview   # 先看红绿 diff
+aoci update-entry --path <file> --entry '<整行条目>' --source-sha256 "$sha"
+
+# ③ 孤儿条目（文件被移走/删除）→ remove-entry
+aoci remove-entry --path 'code:<旧路径>'
+
+# ④ 观察项 + 证明对齐
+aoci scope acknowledge --reviewed-by <you>
+aoci verify && aoci check
+
+# --agent 必填；期望 stage=aligned complete=true next_action=none
+aoci index agent guide --agent <host>
+```
+
+**指纹为什么该现算，而不是读 `.aoci/baseline.json`**：
+baseline 里的 `sha256` 确实**与 maintain 给的同源**（实测逐字节相同，都是原始字节哈希、不做 LF 归一），
+但 baseline **只在 `scan` 或写入后更新** —— 改完文件还没 scan 时它是旧值，
+拿它去写会被 `write_conflict` 拒。**现算文件哈希永远是最新的**，也就不会白跑。
+
+⚠️ 注意两个坑：
+- `aoci index update` **不能用于 Volumes v1**（会报 `This command or compatibility write path cannot modify Volumes v1 formal cognition`）—— 那是 Legacy 路径
+- `update-entry` 只能 insert / replace，**删条目不归它管**，要用 `remove-entry`
+
+### 两条路怎么选
+
+| | MCP `aoci_maintain` | 纯 CLI |
+|---|---|---|
+| 发现候选 | ✅ 连 `existing_entry` 一起给（不用去 `aoci.code.txt` 翻） | `check --json` 的 `code_drift.stale`，条目要自己查 |
+| 批次原子性 | ✅ `code_batch_id` 一次提交多条 | ❌ 一条一条写 |
+| 孤儿 / 观察项 | ✅ 直接列出 `orphan_remove_candidates` | 要自己比对 `missing` / `orphan` |
+| 前置成本 | 配 MCP（全局配置型 host 还要重启会话） | **零配置** |
+
+**结论**：能配 MCP 就配（省手工）；配不了（全局配置型 host、CI、一次性脚本、临时仓库）
+**纯 CLI 一样能收口**——别再以为「必须配 MCP 才能写」。
+
+### 证明对齐（两条路共用）
+
 ```bash
 aoci verify && aoci check
 aoci index agent guide --agent <host>   # --agent 必填；期望 stage=aligned complete=true next_action=none
 ```
-
-**CLI 两条路径**（都不签发身份，`candidate_id` / `source_sha256` 仍只能来自 `aoci_maintain`）：
-- 单条直写 `aoci update-entry --path <相对路径> --entry '<整行条目>' --source-sha256 <hash>`，先加
-  `--preview` 看红绿 diff；它没有 `--candidate-id` / `--code-batch-id`（那是 MCP 字段）
-- 批量走 staged 协议 `aoci index entries check` → `diff` → `apply`（`recover` 收尾）
 
 `aoci_maintain` 只签发候选，**不创作** F/R/A/S、不压缩、不降 C——语义永远由作者写。
 
