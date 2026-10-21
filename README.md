@@ -27,7 +27,7 @@ This skill answers those. It is the **method layer**, not the contract layer.
 | 〇 | **Bootstrap** — three checks that decide whether you can work at all, plus the authority order when the skill conflicts with project rules |
 | 一 | When to use / when calling `aoci_maintain` is actively wrong (with decidable signals, not vague advice) |
 | 二 | The full loop: `gitnexus impact` → change code → `aoci_maintain` → `verify/check/guide` → attestation |
-| 三 | Reading impact before editing — parameter-level, including the two that silently return empty |
+| 三 | Reading impact before editing — parameters, plus **why an empty result is not a safe result** (`epistemic` / `causes` / `risk: UNKNOWN`) |
 | 四 | The AOCI close-out, MCP path vs CLI paths, and why only one of them can issue identities |
 | 五 | Writing entries: FRAS v2, tag selection, field budgets, and the `S` admission test |
 | 六 | Managed scope changes — the approval flow and the timing trap that voids a whole change set |
@@ -97,6 +97,20 @@ each have their own AOCI instance without fighting over a global setting. Skip `
 - **Doesn't copy upstream config syntax.** Host-specific setup lives in AOCI's own
   [agent integration docs](https://github.com/aoci-spec/aoci-code/blob/main/docs/agent-integrations.md), which stay
   current as releases change. Duplicating them here would only rot.
+
+## Field notes
+
+This skill has been run against real repositories, and one round of field feedback produced three reported
+"gotchas". Two held up; **one did not**, and the correction is worth keeping:
+
+| Reported | Verdict after reproducing |
+|---|---|
+| `guide` returns exit 0 on failure | ❌ **Wrong root cause.** `aoci` returns 3. The report measured `cmd \| head; echo $?` — that is `head`'s status, always 0. The trap is real but belongs to the caller, so the skill now warns about the pipe, not about `aoci` |
+| MCP config is project-level, so projects coexist | ✅ True for Claude Code / Codex / Cursor / OpenCode / Qoder. **False for hosts that keep one global MCP file** — those can't run several AOCI entries at once, and server-prefixed tool names stop matching this skill's bare tool references |
+| Stale index returns an empty answer, not an error | ✅ Worse than that. `impact` reports `risk: UNKNOWN` (never `LOW`) on an empty upstream, plus `epistemic: lower-bound` and machine-readable `causes` naming what was dropped |
+
+Keeping the disproved one documented is deliberate: the instinct "a tool's exit code is untrustworthy" would have
+spread into every script that reads this skill.
 
 ## Verification
 

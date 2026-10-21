@@ -11,6 +11,7 @@ AOCI 存**语义与踩坑事实**，gitnexus 存**调用关系图**：前者管"
 
 | 步 | 命令 | 缺了怎么办 |
 |---|---|---|
+| ⓿ 一眼看全 | `aoci doctor` | 一条命令给：仓库定位 / 配置加载 / 索引解析 / baseline / 检测到的 Agent 环境 / 各 host MCP 状态 / AI 层 / 平台。**但它不做漂移比对**（该项明写"详情运行 `aoci verify`"），也**不认识全局配置型 host**（见下）|
 | ① 二进制 | `aoci --version` | 从官方 release 取签名包，按 `docs/install.md` 的 basic / recommended / full 三档验证之一，**并报告走了哪档**。不用来源不明的二进制 |
 | ② 项目契约 | `ls .aoci/` | `aoci --repo <项目绝对路径> init --agent <host>` |
 | ③ Baseline | `aoci scan` | **别跳过这步**：没有 Baseline 时 `guide` 直接 `stage=blocked`；`scan` 后变 `authoring_required`，并告诉你 index 文件数与预计 Maintain 轮数 |
@@ -36,6 +37,17 @@ aoci --repo /abs/path/to/repo init --agent claude|codex|cursor|opencode|qoder|al
 command : <aoci 绝对路径>
 args    : ["--repo", "<项目绝对路径>", "mcp"]
 ```
+
+**先分清你这个 host 的配置是项目级还是全局级**——这决定多项目能不能共存：
+
+| 配置形态 | 例子 | 多项目 |
+|---|---|---|
+| **项目级**（`init --agent` 会写） | Claude Code `.mcp.json`、Codex `.codex/config.toml`、Cursor、OpenCode、Qoder | 天然并存，`--repo` 各自指向自己项目根 |
+| **全局级**（`init` 管不到） | 把 MCP 配在用户目录一份配置文件里的宿主 | 🔴 **同一时间只能指一个项目** |
+
+全局级 host 的三个连带事实：① `init --agent` 照样能建 `.aoci/` 和 `AGENTS.md`，但**不会写 MCP**；② `doctor` 只认上面那五类环境，不认你；③ 若你硬加多条 server，工具名会带 server 前缀（`mcp__<name>__aoci_maintain`），**skill 里的裸工具名就对不上了**。
+
+⇒ 全局级 host **不要并存多个 aoci MCP 条目**，切项目就改那一条 `--repo`。并存的最大风险正是下面这个：
 
 两个坑：路径用**正斜杠**（MSYS / Git Bash 会把 `X:` + 反斜杠 变成 `X://` 导致进程起不来）；`--repo` 必须指**当前项目根**，否则工具照常返回但改的是别的仓库——**静默出错，比报错更难发现**。
 
@@ -90,8 +102,8 @@ pending_curation / deleted…），**不签发**任何身份。CLI 没有 `aoci 
 
 ## 三、改之前：先用 gitnexus 摸清影响面
 
-**前置两步**：① `gitnexus analyze` 建索引——没建过四个工具全返回空；② `list_repos`（或 `group.yaml`）拿
-`repo` 名。**四个工具都必填 `repo`**（跨仓用 `@<groupName>`）；`impact` 另必填 `direction`，
+**前置两步**：① `gitnexus analyze` 建索引；② `list_repos`（或 `group.yaml`）拿 `repo` 名。
+没建过索引时工具**不报错**，而是返回**看起来正常的空**——所以下面那段"怎么读"比命令本身更重要。**四个工具都必填 `repo`**（跨仓用 `@<groupName>`）；`impact` 另必填 `direction`，
 `query` 另必填 `search_query`（**不是 `query`**）。
 
 | 问题 | 工具 | 关键参数 |
@@ -103,6 +115,30 @@ pending_curation / deleted…），**不签发**任何身份。CLI 没有 `aoci 
 
 **读结果顺序**：d=1（WILL BREAK，直接调用方）→ d=2（LIKELY AFFECTED）→ d=3（MAY NEED TESTING）。
 d=1 里每一个都要在改完后确认还活着——它们同时是条目 `R:` 要写的内容。
+
+### ⚠️ 空集合 / 小集合 ≠ 安全（最容易出人命的一条）
+
+`impact` 的"没人调用"有三种完全不同的含义，**只有一种是真的**：
+
+| 你看到的 | 实际含义 | 该怎么办 |
+|---|---|---|
+| `byDepth` 空 + `risk: UNKNOWN` | **要么真没人用，要么索引没记录到**（工具刻意不给 `LOW`）| 改/删/重命名前**必须**文本 grep 复核 |
+| `epistemic: "lower-bound"` | 这是**下界**，不是全部 | 读 `causes` 看谁漏了，别当下界当 exact |
+| `epistemic: "exact"` + 空 | 才是真的没有 | 可以用 |
+
+**`causes` 是机读的漏项来源**，非零就要当不完整处理：
+
+| 字段 | 含义 | 可修 |
+|---|---|---|
+| `receiverTyping` | 类型推断失败的调用点（工厂 / 链式调用 / 未解析构造器）| 修索引或换写法分析 |
+| `dispatchBoundary` | DI / 接口 / 反射跨越的边界，静态走不过去 | 不可修，只能承认 |
+| `undecidedSatisfaction` | 接口是否被实现**判不出来**（依赖没解析到），图里不留任何痕迹 | 通常补依赖可修 |
+| `callableValueReferences` | 函数被当**值**传递（`{onClick: handler}`），调用发生在别处 | 部分可修 |
+| `scopeExtractionFiles` | 这些文件的 scope 抽取失败，出边缺失 | 重跑 `analyze --force` |
+
+**索引过期时返回的不是错误，是"看起来合理的错答案"**——空 incoming 会被读成"没人调用"。所以：
+`epistemic` 非 `exact`、或上面任一 `causes` 非零、或结果里有 `staleness` / 分层缺失提示 → **先重建索引再读**，
+不要基于它下"安全"结论。
 
 **`trace` vs `impact`**：`impact` 给扇出（谁依赖我），`trace` 给链（A→B 经过哪几跳，带 `file:line`
 与每跳 edge type + confidence）。调试"这条路怎么通的"时，一次 trace ≈ 3–8 次手搓 context。
@@ -179,7 +215,32 @@ C7–4 ≤ 200（token ≤ 80）、C3–1 ≤ 50。S 的 token 按 UTF-8 字节 
 **对 C7+ 对象写 `S:-` 之前**，必须先在真正决定行为的地方真找过一圈（实现、拦截器、SQL、配置、模板）。
 **没看就写 `S:-` 与编造同等错误。**
 
-## 六、Scope 变更（必走人工审批 + 一个致命时序陷阱）
+### 与项目既有记忆体系共存（防双写漂移）
+
+多数项目已经有自己的 memory / 设计文档 / 决策记录。**别把同一件事写两遍**：
+
+| 内容 | 写哪儿 |
+|---|---|
+| **文件级事实**：这个文件干什么、谁调它、踩过什么坑 | AOCI 的 F / R / A / S |
+| **跨文件方法论、决策与理由、时间线** | 留在原体系，AOCI 里只在 `R:` 指过去 |
+
+同一事实两处都写，**最先腐烂的一定是没被维护的那份**，而且两边不一致时没人知道该信谁。
+不确定时问一句：**它会不会随这单个文件的改动而失效？** 会 → AOCI；不会 → 原体系。
+
+## 六、Scope：index 放什么 + 怎么改
+
+### 划范围：index 只放**契约层**
+
+判据不是"重不重要"，是**"改了它，别人要不要跟着改"**——契约层变更会传导，UI 变更不传导。
+
+| index（会被 maintain 追踪） | observe（不进 index） |
+|---|---|
+| 入口边界、持久化、集成适配、应用编排、算法核心 | UI 页面与纯样式、一次性脚本 |
+| 判断/断言的骨架（校验、守卫、契约） | 生成物、测试数据、二进制 |
+
+**UI 页面即使很复杂也不进 index**——它的"正确"靠截图和人工看，不靠调用关系传导。
+
+### 怎么改（必走人工审批 + 一个致命时序陷阱）
 
 ```bash
 aoci scope status        # 1. 先看 index / observe / exclude 三项计数，别记数字，现查
@@ -262,6 +323,7 @@ replay 校验把 Git HEAD 算进指纹，中间提交一次 commit → HEAD 变�
 | 二进制 | 命令名 `aoci`。`which aoci` 为空 → 全流程起不来。**版本以 `aoci --version` 为准**，别信任何文档写的版本号 |
 | 环境诊断 | `aoci doctor` 查四组（仓库与核心资产 / Agent 集成 / AI 增强层 / 平台能力），默认不联网，`--net` 才探端点 |
 | MCP 接入 | 见 §〇：优先 `init --agent`（自动写项目级）；不在列表的 host 手配 stdio（**正斜杠** + `--repo` 指项目根） |
+| **判断成败** | **别写 `cmd \| head; echo $?`** —— 取到的是 `head` 的退出码，永远是 0。要么直接取码，要么 `set -o pipefail`，要么看 `--json` 字段。`aoci` 自身的码是可靠的（未初始化仓库跑 `guide` → 3）|
 | 本地测 MCP 握手 | 必须保持 stdin 打开：`{ printf '...'; sleep 10; } \| aoci mcp`，否则进程立刻 EOF 退出 |
 | 不是漂移 | 二进制文件被跳过（`code_skipped: binary`）；条目里刻意保留的事故记录（某日丢可执行位之类）是**防重复踩坑的证据**，不要当过期信息删掉 |
 

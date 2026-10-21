@@ -93,6 +93,18 @@ aoci --repo /absolute/path/to/repo index agent guide --agent <host>   # 4. 下�
   [agent 集成文档](https://github.com/aoci-spec/aoci-code/blob/main/docs/agent-integrations.md)，随 release 更新；
   抄到这儿只会腐烂。
 
+## 实测反馈
+
+这份 skill 在真实仓库上跑过。有一轮使用反馈提出三条问题，**两条成立、一条不成立** —— 不成立那条的纠正比踩坑本身更值钱：
+
+| 反馈 | 复现后的判定 |
+|---|---|
+| `guide` 失败时 exit code 是 0 | ❌ **根因错**。`aoci` 返回 3。反馈者测的是 `cmd \| head; echo $?`，那是 `head` 的状态码，永远 0。陷阱是真的，但属于调用方 —— 所以 skill 警告的是管道，不是 `aoci` |
+| MCP 配置是项目级，所以多项目并存 | ✅ 对 Claude Code / Codex / Cursor / OpenCode / Qoder 成立。**对「全局一份 MCP 配置」的宿主不成立** —— 那种宿主上多条 aoci 无法并存，且工具名会带 server 前缀，skill 里的裸工具名就对不上 |
+| 索引过期返回空答案而不是报错 | ✅ 比这更糟。`impact` 在 upstream 为空时报 `risk: UNKNOWN`（**永远不是 `LOW`**），另有 `epistemic: lower-bound` 与机读的 `causes` 说明漏了什么 |
+
+把**被证伪**的那条也写下来是有意的：「工具退出码不可信」这种直觉一旦写进 skill，会扩散到每个读它的脚本里。
+
 ## 验证
 
 `SKILL.md` 里每个 `aoci` 命令与 flag 都对真实二进制的 `--help` 核过（15 处引用 / 12 个不同命令），
