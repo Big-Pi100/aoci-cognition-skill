@@ -1,0 +1,7 @@
+# Keep every checkout identical across platforms (Windows CRLF would otherwise
+# leak into SKILL.md / README and produce noisy diffs for contributors).
+* text=auto eol=lf
+
+*.md   text eol=lf
+*.png  binary
+*.jpg  binary
